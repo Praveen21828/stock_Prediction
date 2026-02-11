@@ -1,7 +1,13 @@
-import React, { useState } from "react";
+import React from "react";
+import { NavLink } from "react-router-dom";
 import "../styles/stock-details.css";
 
-const NAV_ITEMS = ["Dashboard", "Screener", "Stock Details", "News"];
+const NAV_ITEMS = [
+  { label: "Dashboard", to: "/dashboard" },
+  { label: "Screener", to: "/screener" },
+  { label: "Stock Details", to: "/stock-details" },
+  { label: "News", to: "/news" },
+];
 
 const INDICATORS = [
   { label: "RSI", value: "62" },
@@ -37,22 +43,21 @@ const SIGNALS = {
 };
 
 export default function StockDetails() {
-  const [activeTab, setActiveTab] = useState("Stock Details");
-
   return (
     <div className="stock-details">
       <header className="top-nav">
         <div className="brand">Stock Prediction</div>
         <nav className="nav-tabs">
           {NAV_ITEMS.map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={`nav-tab ${activeTab === item ? "active" : ""}`}
-              onClick={() => setActiveTab(item)}
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `nav-tab ${isActive ? "active" : ""}`
+              }
             >
-              {item}
-            </button>
+              {item.label}
+            </NavLink>
           ))}
         </nav>
         <div className="nav-actions">

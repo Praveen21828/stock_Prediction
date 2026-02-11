@@ -17,6 +17,13 @@ button {
   transition: 0.2s ease;
 }
 
+a.nav-tab {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 button:focus-visible,
 input:focus-visible {
   outline: 2px solid rgba(96, 165, 250, 0.6);

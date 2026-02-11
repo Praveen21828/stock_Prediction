@@ -1,7 +1,13 @@
 import React, { useMemo, useState } from "react";
+import { NavLink } from "react-router-dom";
 import "../styles/dashboard.css";
 
-const NAV_ITEMS = ["Dashboard", "Screener", "Stock Detail", "News"];
+const NAV_ITEMS = [
+  { label: "Dashboard", to: "/dashboard" },
+  { label: "Screener", to: "/screener" },
+  { label: "Stock Detail", to: "/stock-details" },
+  { label: "News", to: "/news" },
+];
 const TIMEFRAMES = ["5m", "15m", "1D", "1W"];
 
 const SAMPLE_STOCKS = [
@@ -30,7 +36,6 @@ function getTrend(value) {
 }
 
 export default function Dashboard() {
-  const [activeTab, setActiveTab] = useState("Dashboard");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [selectedStock, setSelectedStock] = useState(SAMPLE_STOCKS[0]);
@@ -73,14 +78,15 @@ export default function Dashboard() {
         <div className="brand">Stock Prediction</div>
         <nav className="nav-tabs">
           {NAV_ITEMS.map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={`nav-tab ${activeTab === item ? "active" : ""}`}
-              onClick={() => setActiveTab(item)}
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `nav-tab ${isActive ? "active" : ""}`
+              }
             >
-              {item}
-            </button>
+              {item.label}
+            </NavLink>
           ))}
         </nav>
         <div className="nav-actions">

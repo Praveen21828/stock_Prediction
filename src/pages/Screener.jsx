@@ -1,8 +1,13 @@
-import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React from "react";
+import { NavLink, useNavigate } from "react-router-dom";
 import "../styles/screener.css";
 
-const NAV_ITEMS = ["Dashboard", "Screener", "Stock Details", "News"];
+const NAV_ITEMS = [
+  { label: "Dashboard", to: "/dashboard" },
+  { label: "Screener", to: "/screener" },
+  { label: "Stock Detail", to: "/stock-details" },
+  { label: "News", to: "/news" },
+];
 
 const SAMPLE_RESULTS = [
   { symbol: "TCS", signal: "BUY", score: 82 },
@@ -20,7 +25,6 @@ function getSignalClass(signal) {
 }
 
 export default function Screener() {
-  const [activeTab, setActiveTab] = useState("Screener");
   const navigate = useNavigate();
 
   function handleRowClick(symbol) {
@@ -33,14 +37,15 @@ export default function Screener() {
         <div className="brand">Stock Prediction</div>
         <nav className="nav-tabs">
           {NAV_ITEMS.map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={`nav-tab ${activeTab === item ? "active" : ""}`}
-              onClick={() => setActiveTab(item)}
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `nav-tab ${isActive ? "active" : ""}`
+              }
             >
-              {item}
-            </button>
+              {item.label}
+            </NavLink>
           ))}
         </nav>
         <div className="nav-actions">

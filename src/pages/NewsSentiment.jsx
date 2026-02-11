@@ -1,7 +1,13 @@
 import React, { useMemo, useState } from "react";
+import { NavLink } from "react-router-dom";
 import "../styles/news-sentiment.css";
 
-const NAV_ITEMS = ["Dashboard", "Screener", "Stock Details", "News"];
+const NAV_ITEMS = [
+  { label: "Dashboard", to: "/dashboard" },
+  { label: "Screener", to: "/screener" },
+  { label: "Stock Details", to: "/stock-details" },
+  { label: "News", to: "/news" },
+];
 const FILTERS = ["All", "Positive", "Neutral", "Negative"];
 
 const NEWS_ITEMS = [
@@ -50,14 +56,15 @@ export default function NewsSentiment() {
         <div className="brand">Stock Prediction</div>
         <nav className="nav-tabs">
           {NAV_ITEMS.map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={`nav-tab ${activeTab === item ? "active" : ""}`}
-              onClick={() => setActiveTab(item)}
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `nav-tab ${isActive ? "active" : ""}`
+              }
             >
-              {item}
-            </button>
+              {item.label}
+            </NavLink>
           ))}
         </nav>
         <div className="nav-actions">
