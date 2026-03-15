@@ -62,7 +62,16 @@ export default function StockDetails() {
         </nav>
         <div className="nav-actions">
           <button className="theme-toggle" type="button">
-            🌗
+            <img
+              className="theme-icon theme-icon--light"
+              src="/images/theme-sun.jpg"
+              alt="Light mode"
+            />
+            <img
+              className="theme-icon theme-icon--dark"
+              src="/images/theme-moon.jpg"
+              alt="Dark mode"
+            />
           </button>
           <div className="user-chip">PK</div>
         </div>
