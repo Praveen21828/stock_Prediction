@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
 import "../styles/news-sentiment.css";
+import { getJSON } from "../api/client";
 
 const NAV_ITEMS = [
   { label: "Dashboard", to: "/dashboard" },
@@ -44,11 +45,39 @@ function sentimentClass(sentiment) {
 export default function NewsSentiment() {
   const [activeTab, setActiveTab] = useState("News");
   const [filter, setFilter] = useState("All");
+  const [newsItems, setNewsItems] = useState(NEWS_ITEMS);
+
+  useEffect(() => {
+    let isMounted = true;
+    getJSON("/api/stocks")
+      .then((stocks) => {
+        if (!isMounted || !Array.isArray(stocks) || !stocks.length) return;
+        const symbol = stocks[0]?.symbol;
+        if (!symbol) return;
+        return getJSON(`/api/stocks/${symbol}/sentiment`);
+      })
+      .then((data) => {
+        if (!isMounted || !data?.sentiment?.length) return;
+        const mapped = data.sentiment.map((item) => ({
+          title: item.headline,
+          source: item.source || "News",
+          time: new Date(item.published_date).toLocaleDateString(),
+          sentiment: item.sentiment_score >= 0.05 ? "Positive" : item.sentiment_score <= -0.05 ? "Negative" : "Neutral",
+        }));
+        if (mapped.length) setNewsItems(mapped);
+      })
+      .catch(() => {
+        // keep sample data on error
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filteredNews = useMemo(() => {
-    if (filter === "All") return NEWS_ITEMS;
-    return NEWS_ITEMS.filter((item) => item.sentiment === filter);
-  }, [filter]);
+    if (filter === "All") return newsItems;
+    return newsItems.filter((item) => item.sentiment === filter);
+  }, [filter, newsItems]);
 
   return (
     <div className="news-sentiment">

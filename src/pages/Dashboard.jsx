@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 import "../styles/dashboard.css";
 import WatchlistManager from "../components/WatchlistManager";
-import TradingChart from "../components/TradingChart";
+import LiveCandleChart from "../components/LiveCandleChart";
+import { getJSON } from "../api/client";
 
 const NAV_ITEMS = [
   { label: "Dashboard", to: "/dashboard" },
@@ -54,6 +55,7 @@ export default function Dashboard() {
   const [query, setQuery] = useState("");
   const [selectedStock, setSelectedStock] = useState(SAMPLE_STOCKS[0]);
   const [timeframe, setTimeframe] = useState("1D");
+  const [exchange, setExchange] = useState("NSE");
   const [watchlists, setWatchlists] = useState(DEFAULT_WATCHLISTS);
   const [activeWatchlistId, setActiveWatchlistId] = useState(
     DEFAULT_WATCHLISTS[0].id
@@ -82,11 +84,64 @@ export default function Dashboard() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(watchlists));
   }, [watchlists]);
 
-  const signals = {
+  useEffect(() => {
+    let isMounted = true;
+    getJSON("/api/stocks")
+      .then((data) => {
+        if (!isMounted || !Array.isArray(data)) return;
+        const mapped = data.map((item) => ({
+          symbol: item.symbol,
+          price: 0,
+          change: 0,
+          open: 0,
+        }));
+        if (mapped.length) {
+          setStocks(mapped);
+          setSelectedStock(mapped[0]);
+        }
+      })
+      .catch(() => {
+        // keep sample data on error
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedStock?.symbol) return;
+    let isMounted = true;
+    getJSON(`/api/stocks/${selectedStock.symbol}/prediction`)
+      .then((data) => {
+        if (!isMounted || !data) return;
+        setSignals({
+          intraday: {
+            label: data.intraday?.signal || "WATCH",
+            confidence: Math.round(data.intraday?.confidence ?? 0),
+          },
+          swing: {
+            label: data.swing?.signal || "WATCH",
+            confidence: Math.round(data.swing?.confidence ?? 0),
+          },
+          delivery: {
+            label: data.delivery?.signal || "WATCH",
+            confidence: Math.round(data.delivery?.confidence ?? 0),
+          },
+        });
+      })
+      .catch(() => {
+        // keep sample data on error
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedStock?.symbol]);
+
+  const [signals, setSignals] = useState({
     intraday: { label: "BUY", confidence: 83 },
     swing: { label: "HOLD", confidence: 56 },
     delivery: { label: "BUY", confidence: 78 },
-  };
+  });
 
   function getStockBySymbol(symbol) {
     return (
@@ -101,8 +156,9 @@ export default function Dashboard() {
         prev.map((stock) => {
           const delta = (Math.random() - 0.5) * 0.6;
           const price = Math.max(stock.price + delta, 1);
-          const change = ((price - stock.open) / stock.open) * 100;
-          return { ...stock, price, change };
+          const open = stock.open || price;
+          const change = open ? ((price - open) / open) * 100 : 0;
+          return { ...stock, price, change, open };
         })
       );
     }, 2500);
@@ -341,11 +397,25 @@ export default function Dashboard() {
           <div className="chart-header">
             <div>
               <h2>
-                {selectedStock.symbol} <span>NSE</span>
+                {selectedStock.symbol} <span>{exchange}</span>
               </h2>
-              <p>Trading view chart</p>
+              <p>Live chart (WebSocket)</p>
             </div>
             <div className="timeframes">
+              <button
+                type="button"
+                className={exchange === "NSE" ? "active" : ""}
+                onClick={() => setExchange("NSE")}
+              >
+                NSE
+              </button>
+              <button
+                type="button"
+                className={exchange === "BSE" ? "active" : ""}
+                onClick={() => setExchange("BSE")}
+              >
+                BSE
+              </button>
               {TIMEFRAMES.map((frame) => (
                 <button
                   key={frame}
@@ -361,7 +431,11 @@ export default function Dashboard() {
 
           <div className="chart-body">
             <div className="chart-placeholder">
-              <TradingChart symbol={selectedStock.symbol} timeframe={timeframe} />
+              <LiveCandleChart
+                symbol={selectedStock.symbol}
+                exchange={exchange}
+                timeframe={timeframe}
+              />
             </div>
           </div>
 

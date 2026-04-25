@@ -51,6 +51,15 @@ backend\.venv\Scripts\python.exe backend\manage.py runserver
 
 Backend API base URL: `http://127.0.0.1:8000/api/`
 
+### Frontend ↔ Backend connection
+
+The frontend uses a local proxy to forward `/api/*` calls to Django.
+
+- Proxy is set in [`package.json`](package.json:1): `http://127.0.0.1:8000`
+- API routes are defined in [`api/urls.py`](api/urls.py:1)
+
+Run backend on `127.0.0.1:8000` and frontend on `localhost:3000`.
+
 ## 2) Frontend setup (React)
 
 ```bash
@@ -74,3 +83,57 @@ Open in browser:
 
 - `http://127.0.0.1:8000/api/stocks`
 - `http://127.0.0.1:8000/api/screener`
+# Live NSE/BSE Dynamic Chart (WebSocket, no DB)
+
+This project now supports a **dynamic candle chart** using a **WebSocket server** that streams candles from **yfinance** (free/public; may be delayed).
+
+## 1) Start the WebSocket candle server
+
+In terminal 1 (workspace root):
+
+```bash
+python ws_server.py
+```
+
+It listens on:
+
+- `ws://127.0.0.1:8765/?symbol=TCS&exchange=NSE&timeframe=5m`
+
+Supported params:
+
+- `symbol` = `TCS`, `INFY`, `RELIANCE`, ...
+- `exchange` = `NSE` or `BSE`
+- `timeframe` = `1m | 5m | 15m | 30m | 1H | 1D | 1W`
+
+Notes:
+
+- Uses **in-memory cache** only (no database).
+- Updates are sent by polling yfinance every ~5 seconds (configurable via `poll`).
+
+## 2) Start Django backend (existing)
+
+In terminal 2:
+
+```bash
+cd backend && python manage.py runserver 127.0.0.1:8000
+```
+
+## 3) Start React frontend
+
+In terminal 3 (workspace root):
+
+```bash
+npm start
+```
+
+Open:
+
+- `http://localhost:3000/dashboard`
+
+## What changed
+
+- The dashboard chart switched from TradingView widget to a WebSocket-driven chart:
+  - [`src/pages/Dashboard.jsx`](src/pages/Dashboard.jsx:1)
+  - [`src/components/LiveCandleChart.jsx`](src/components/LiveCandleChart.jsx:1)
+  - WebSocket URL builder: [`src/api/wsClient.js`](src/api/wsClient.js:1)
+  - Server: [`ws_server.py`](ws_server.py:1)

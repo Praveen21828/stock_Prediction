@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import "../styles/screener.css";
+import { getJSON } from "../api/client";
 
 const NAV_ITEMS = [
   { label: "Dashboard", to: "/dashboard" },
@@ -26,10 +27,31 @@ function getSignalClass(signal) {
 
 export default function Screener() {
   const navigate = useNavigate();
+  const [results, setResults] = useState(SAMPLE_RESULTS);
 
   function handleRowClick(symbol) {
     navigate(`/stock-details?symbol=${symbol}`);
   }
+
+  useEffect(() => {
+    let isMounted = true;
+    getJSON("/api/screener")
+      .then((data) => {
+        if (!isMounted || !Array.isArray(data)) return;
+        const mapped = data.map((item) => ({
+          symbol: item.symbol,
+          signal: item.intraday?.signal || item.swing?.signal || "WATCH",
+          score: Math.round(item.intraday?.confidence ?? 0),
+        }));
+        if (mapped.length) setResults(mapped);
+      })
+      .catch(() => {
+        // keep sample data on error
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   return (
     <div className="screener">
@@ -82,7 +104,7 @@ export default function Screener() {
             <span>Signal</span>
             <span>Score</span>
           </div>
-          {SAMPLE_RESULTS.map((row) => (
+          {results.map((row) => (
             <button
               key={row.symbol}
               type="button"

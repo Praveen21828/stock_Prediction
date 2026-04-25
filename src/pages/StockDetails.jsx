@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
 import "../styles/stock-details.css";
+import { getJSON } from "../api/client";
 
 const NAV_ITEMS = [
   { label: "Dashboard", to: "/dashboard" },
@@ -43,6 +44,83 @@ const SIGNALS = {
 };
 
 export default function StockDetails() {
+  const [symbol, setSymbol] = useState("RELIANCE");
+  const [indicators, setIndicators] = useState(INDICATORS);
+  const [news, setNews] = useState(NEWS);
+  const [signals, setSignals] = useState(SIGNALS);
+  const [priceBlock, setPriceBlock] = useState({ price: "₹2,865.70", change: "+1.51%" });
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paramSymbol = params.get("symbol");
+    if (paramSymbol) setSymbol(paramSymbol.toUpperCase());
+  }, []);
+
+  useEffect(() => {
+    if (!symbol) return;
+    let isMounted = true;
+    getJSON(`/api/stocks/${symbol}/indicators`)
+      .then((data) => {
+        if (!isMounted || !data?.indicators?.length) return;
+        const latest = data.indicators[0];
+        setIndicators([
+          { label: "RSI", value: latest.rsi_14?.toFixed?.(2) ?? "-" },
+          { label: "MACD", value: latest.macd?.toFixed?.(2) ?? "-" },
+          { label: "VWAP", value: latest.vwap?.toFixed?.(2) ?? "-" },
+          { label: "EMA 50", value: latest.ema_50?.toFixed?.(2) ?? "-" },
+          { label: "EMA 200", value: latest.ema_200?.toFixed?.(2) ?? "-" },
+          { label: "Support / Resistance", value: "-" },
+        ]);
+      })
+      .catch(() => {
+        // keep sample data on error
+      });
+
+    getJSON(`/api/stocks/${symbol}/sentiment`)
+      .then((data) => {
+        if (!isMounted || !data?.sentiment?.length) return;
+        const mapped = data.sentiment.slice(0, 5).map((item) => ({
+          title: item.headline,
+          sentiment: item.sentiment_score >= 0.05 ? "Positive" : item.sentiment_score <= -0.05 ? "Negative" : "Neutral",
+          time: new Date(item.published_date).toLocaleDateString(),
+        }));
+        setNews(mapped);
+      })
+      .catch(() => {
+        // keep sample data on error
+      });
+
+    getJSON(`/api/stocks/${symbol}/prediction`)
+      .then((data) => {
+        if (!isMounted || !data) return;
+        setSignals({
+          intraday: { label: data.intraday?.signal || "WATCH", confidence: Math.round(data.intraday?.confidence ?? 0) },
+          swing: { label: data.swing?.signal || "WATCH", confidence: Math.round(data.swing?.confidence ?? 0) },
+          delivery: { label: data.delivery?.signal || "WATCH", confidence: Math.round(data.delivery?.confidence ?? 0) },
+        });
+      })
+      .catch(() => {
+        // keep sample data on error
+      });
+
+    getJSON(`/api/stocks/${symbol}/history`)
+      .then((data) => {
+        if (!isMounted || !data?.history?.length) return;
+        const latest = data.history[0];
+        const price = latest?.close ? `₹${Number(latest.close).toFixed(2)}` : "₹0.00";
+        const open = latest?.open ? Number(latest.open) : 0;
+        const close = latest?.close ? Number(latest.close) : 0;
+        const changePct = open ? (((close - open) / open) * 100).toFixed(2) : "0.00";
+        setPriceBlock({ price, change: `${changePct}%` });
+      })
+      .catch(() => {
+        // keep sample data on error
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [symbol]);
   return (
     <div className="stock-details">
       <header className="top-nav">
@@ -82,19 +160,19 @@ export default function StockDetails() {
           <div>
             <p className="label">Selected Stock</p>
             <h1>
-              RELIANCE <span>NSE</span>
+              {symbol} <span>NSE</span>
             </h1>
           </div>
           <div className="price-block">
             <p className="label">Price</p>
-            <h2>₹2,865.70</h2>
-            <span className="change up">+1.51%</span>
+            <h2>{priceBlock.price}</h2>
+            <span className="change up">{priceBlock.change}</span>
           </div>
           <div className="signal-chip buy">Signal: BUY</div>
         </section>
 
         <section className="indicator-grid">
-          {INDICATORS.map((item) => (
+          {indicators.map((item) => (
             <div key={item.label} className="indicator-card">
               <p className="label">{item.label}</p>
               <h3>{item.value}</h3>
@@ -114,13 +192,13 @@ export default function StockDetails() {
 
         <section className="signal-badges">
           <div className="badge intraday">
-            ⚡ Intraday: {SIGNALS.intraday.label} ({SIGNALS.intraday.confidence}%)
+            ⚡ Intraday: {signals.intraday.label} ({signals.intraday.confidence}%)
           </div>
           <div className="badge swing">
-            〰️ Swing: {SIGNALS.swing.label} ({SIGNALS.swing.confidence}%)
+            〰️ Swing: {signals.swing.label} ({signals.swing.confidence}%)
           </div>
           <div className="badge delivery">
-            🛡️ Delivery: {SIGNALS.delivery.label} ({SIGNALS.delivery.confidence}%)
+            🛡️ Delivery: {signals.delivery.label} ({signals.delivery.confidence}%)
           </div>
         </section>
 
@@ -130,7 +208,7 @@ export default function StockDetails() {
             <span className="sentiment-chip positive">Positive</span>
           </div>
           <ul>
-            {NEWS.map((item) => (
+            {news.map((item) => (
               <li key={item.title}>
                 <div>
                   <p>{item.title}</p>
