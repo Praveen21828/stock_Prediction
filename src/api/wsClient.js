@@ -1,32 +1,79 @@
 // wsClient.js
-// Minimal WebSocket helper for the live chart stream.
+// Robust WebSocket helper with auto-reconnect for live chart stream.
 
-export function buildChartWsUrl({ symbol, exchange, timeframe, pollSeconds = 5 }) {
-  // FastAPI websocket endpoint
-  const base = `ws://127.0.0.1:8000/ws/chart`;
+export function buildChartWsUrl({ symbol, exchange, timeframe }) {
+  // Default to standalone ws_server.py endpoint.
+  // Override via REACT_APP_CHART_WS_BASE, e.g. ws://127.0.0.1:8001/ws/chart
+  const base = process.env.REACT_APP_CHART_WS_BASE || `ws://127.0.0.1:8765/`;
   const params = new URLSearchParams({
     symbol: symbol || "",
     exchange: exchange || "NSE",
-    timeframe: timeframe || "5m",
+    timeframe: timeframe || "1m",
   });
   return `${base}?${params.toString()}`;
 }
 
-export function connectChartStream({ symbol, exchange, timeframe, pollSeconds, onMessage, onOpen, onError, onClose }) {
-  const url = buildChartWsUrl({ symbol, exchange, timeframe, pollSeconds });
-  const ws = new WebSocket(url);
+export function connectChartStream({ symbol, exchange, timeframe, onMessage, onOpen, onError, onClose }) {
+  const url = buildChartWsUrl({ symbol, exchange, timeframe });
 
-  ws.onopen = () => onOpen?.(url);
-  ws.onerror = (event) => onError?.(event);
-  ws.onclose = () => onClose?.();
-  ws.onmessage = (event) => {
-    try {
-      const parsed = JSON.parse(event.data);
-      onMessage?.(parsed);
-    } catch (e) {
-      // ignore invalid payloads
+  let ws = null;
+  let isManuallyClosed = false;
+  let reconnectTimer = null;
+  let attempts = 0;
+
+  const maxDelayMs = 8000;
+
+  const clearReconnect = () => {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
     }
   };
-  return ws;
+
+  const connect = () => {
+    if (isManuallyClosed) return;
+    ws = new WebSocket(url);
+
+    ws.onopen = () => {
+      attempts = 0;
+      onOpen?.(url);
+    };
+
+    ws.onerror = (event) => {
+      onError?.(event);
+    };
+
+    ws.onclose = () => {
+      onClose?.();
+      if (isManuallyClosed) return;
+      const delay = Math.min(1000 * Math.pow(1.7, attempts), maxDelayMs);
+      attempts += 1;
+      clearReconnect();
+      reconnectTimer = setTimeout(connect, delay);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const parsed = JSON.parse(event.data);
+        onMessage?.(parsed);
+      } catch (_) {
+        // ignore invalid payloads
+      }
+    };
+  };
+
+  connect();
+
+  return {
+    close: () => {
+      isManuallyClosed = true;
+      clearReconnect();
+      try {
+        ws?.close();
+      } catch (_) {
+        // ignore
+      }
+    },
+  };
 }
 

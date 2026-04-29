@@ -1,106 +1,83 @@
-"""FastAPI WebSocket chart server.
-
-Endpoint:
-  ws://localhost:8000/ws/chart?symbol=RELIANCE&exchange=NSE&timeframe=1m
-
-Server -> Client messages:
-  {"type":"history","symbol":"RELIANCE","exchange":"NSE","timeframe":"1m","candles":[...]} 
-  {"type":"update","candle":{...}} 
-  {"type":"error","message":"..."}
-
-Run:
-  python -m uvicorn fastapi_server.main:app --host 0.0.0.0 --port 8000 --reload
-"""
-
 from __future__ import annotations
 
-import logging
+import asyncio
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 
-from fastapi_server.data_service import fetch_history_candles
-from fastapi_server.simulation_engine import StreamKey, StreamSupervisor
-from fastapi_server.websocket_manager import WebSocketManager
-
-
-logging.basicConfig(level=logging.INFO, format="[fastapi-ws] %(message)s")
-
-app = FastAPI(title="Dynamic Chart WebSocket")
-
-ws_manager = WebSocketManager()
-supervisor = StreamSupervisor(ws_manager=ws_manager)
+from .data_service import DataService
+from .simulation_engine import SimulationConfig, SimulationEngine
+from .websocket_manager import WebSocketManager
 
 
-@app.on_event("startup")
-async def _startup() -> None:
-    # Supervisor lazily starts streams when the first client subscribes.
-    logging.info("startup")
+manager = WebSocketManager()
+data_service = DataService()
+engine = SimulationEngine(data_service, SimulationConfig(tick_seconds=0.5, smoothing_factor=0.12, noise_abs=0.18))
+stop_event = asyncio.Event()
 
 
-@app.on_event("shutdown")
-async def _shutdown() -> None:
-    logging.info("shutdown")
-    await supervisor.stop_all()
+async def broadcast_loop() -> None:
+    while not stop_event.is_set():
+        candle = await engine.snapshot()
+        if candle:
+            await manager.broadcast_json({"type": "update", "candle": candle})
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=0.5)
+        except asyncio.TimeoutError:
+            continue
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    t1 = asyncio.create_task(data_service.run(stop_event))
+    t2 = asyncio.create_task(engine.run(stop_event))
+    t3 = asyncio.create_task(broadcast_loop())
+    try:
+        yield
+    finally:
+        stop_event.set()
+        for t in (t1, t2, t3):
+            t.cancel()
+        await asyncio.gather(t1, t2, t3, return_exceptions=True)
+
+
+app = FastAPI(title="Realtime Chart Server", lifespan=lifespan)
+
+
+@app.get("/health")
+async def health() -> dict:
+    return {"ok": True}
 
 
 @app.websocket("/ws/chart")
 async def ws_chart(
-    ws: WebSocket,
-    symbol: str = "RELIANCE",
-    exchange: str = "NSE",
-    timeframe: str = "1m",
-    smoothing: float = 0.12,
-    noise: float = 0.20,
-    drift: float = 0.00,
+    websocket: WebSocket,
+    symbol: str = Query(default="RELIANCE"),
+    exchange: str = Query(default="NSE"),
+    timeframe: str = Query(default="1m"),
 ) -> None:
-    """Chart websocket.
+    await manager.connect(websocket)
+    await engine.set_symbol(symbol=symbol.upper(), exchange=exchange.upper())
 
-    Query params:
-      - symbol/exchange/timeframe: subscription key
-      - smoothing: 0.05..0.2 recommended
-      - noise: absolute price noise amplitude per tick
-      - drift: small bias added per tick (can be negative)
-    """
-
-    key = StreamKey(
-        symbol=(symbol or "").strip().upper(),
-        exchange=(exchange or "NSE").strip().upper(),
-        timeframe=(timeframe or "1m").strip(),
-        smoothing=float(smoothing),
-        noise=float(noise),
-        drift=float(drift),
-    )
-
-    await ws.accept()
-
-    try:
-        # Send initial history (slow, but done once per connection; yfinance runs in a thread).
-        candles = await fetch_history_candles(symbol=key.symbol, exchange=key.exchange, timeframe=key.timeframe)
-        await ws.send_json(
+    # send instant snapshot so client can render immediately
+    snap = await engine.snapshot()
+    if snap:
+        await websocket.send_json(
             {
                 "type": "history",
-                "symbol": key.symbol,
-                "exchange": key.exchange,
-                "timeframe": key.timeframe,
-                "candles": candles,
+                "symbol": symbol.upper(),
+                "exchange": exchange.upper(),
+                "timeframe": timeframe,
+                "candles": [snap],
             }
         )
 
-        # Subscribe and ensure simulation for this key is running.
-        await ws_manager.connect(key.to_group(), ws)
-        await supervisor.ensure_running(key)
-
-        # Keep the socket alive; we don't expect inbound messages currently.
+    try:
         while True:
-            await ws.receive_text()
+            # keep connection alive; supports future control messages
+            await websocket.receive_text()
     except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        try:
-            await ws.send_json({"type": "error", "message": str(e)})
-        except Exception:
-            pass
-    finally:
-        await ws_manager.disconnect(key.to_group(), ws)
-        await supervisor.maybe_stop_if_unused(key)
+        await manager.disconnect(websocket)
+    except Exception:
+        await manager.disconnect(websocket)
 

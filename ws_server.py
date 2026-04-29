@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import random
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -210,27 +211,80 @@ async def stream_handler(ws: WebSocketServerProtocol) -> None:
         poll_seconds,
     )
 
-    last_time = candles[-1]["time"]
-    last_close = candles[-1]["close"]
+    last_real_candle = candles[-1]
+    last_time = last_real_candle["time"]
+    last_close = float(last_real_candle["close"])
+
+    # Simulation state for smooth in-candle motion
+    sim_current = float(last_close)
+    sim_target = float(last_close)
+    sim_open = float(last_close)
+    sim_high = float(last_close)
+    sim_low = float(last_close)
+    sim_candle_time = int(datetime.now().timestamp() // 60) * 60
+
+    smoothing_factor = 0.12
+    noise_abs = 0.15
+
+    async def refresh_target_from_yf() -> None:
+        nonlocal last_time, last_close, sim_target
+        _, next_candles = await fetch_history(params)
+        if not next_candles:
+            return
+        latest = next_candles[-1]
+        latest_time = int(latest["time"])
+        latest_close = float(latest["close"])
+
+        # Move target whenever real market moved (new candle or changed close)
+        if latest_time > last_time or latest_close != last_close:
+            last_time = latest_time
+            last_close = latest_close
+            sim_target = latest_close
+
+    # Poll real data slowly in background; simulate quickly in foreground.
+    next_poll_at = asyncio.get_running_loop().time()
 
     while True:
         try:
-            await asyncio.sleep(poll_seconds)
-            _, next_candles = await fetch_history(params)
-            if not next_candles:
-                continue
-            latest = next_candles[-1]
+            now_loop = asyncio.get_running_loop().time()
+            if now_loop >= next_poll_at:
+                await refresh_target_from_yf()
+                next_poll_at = now_loop + poll_seconds
 
-            # Send update if new candle OR changed close on same candle.
-            if latest["time"] > last_time or latest["close"] != last_close:
-                last_time = latest["time"]
-                last_close = latest["close"]
-                await ws.send(json.dumps({"type": "update", "candle": latest}))
+            # 1-minute candle rollover for simulation stream
+            now_epoch = datetime.now().timestamp()
+            minute_bucket = int(now_epoch // 60) * 60
+            if minute_bucket > sim_candle_time:
+                prev_close = float(sim_current)
+                sim_candle_time = minute_bucket
+                sim_open = prev_close
+                sim_high = prev_close
+                sim_low = prev_close
+
+            # Smooth movement toward target + market noise
+            sim_current += (sim_target - sim_current) * smoothing_factor
+            sim_current += random.uniform(-noise_abs, noise_abs)
+
+            sim_high = max(sim_high, sim_current)
+            sim_low = min(sim_low, sim_current)
+
+            sim_candle = {
+                "time": sim_candle_time,
+                "open": round(sim_open, 2),
+                "high": round(sim_high, 2),
+                "low": round(sim_low, 2),
+                "close": round(sim_current, 2),
+                "volume": float(random.randint(1200, 9000)),
+            }
+
+            await ws.send(json.dumps({"type": "update", "candle": sim_candle}))
+            await asyncio.sleep(0.5)
         except websockets.ConnectionClosed:
             return
         except Exception as e:
             # Do not kill the connection on transient yfinance errors.
             await ws.send(json.dumps({"type": "error", "message": str(e)}))
+            await asyncio.sleep(0.5)
 
 
 async def main() -> None:
